@@ -1,20 +1,24 @@
 {
-  "name": "the-arena",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "web": "pnpm -F 'web'",
-    "api": "pnpm -F 'api'",
-    "preinstall": "npx only-allow pnpm"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "typescript": "^5.9.3"
-  },
-  "workspaces": [
-    "apps/*"
-  ]
+	"name": "the-arena",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"web": "pnpm -F 'web'",
+		"api": "pnpm -F 'api'",
+		"format": "pnpm exec biome check --write",
+		"dev": "concurrently \"pnpm web dev\" \"pnpm api dev\"",
+		"preinstall": "npx only-allow pnpm"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"devDependencies": {
+		"@biomejs/biome": "2.3.10",
+		"concurrently": "^9.2.1",
+		"typescript": "^5.9.3"
+	},
+	"workspaces": [
+		"apps/*"
+	]
 }

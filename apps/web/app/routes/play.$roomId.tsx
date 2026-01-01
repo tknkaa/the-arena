@@ -17,7 +17,7 @@ export default function Page() {
 			websocket.close();
 			websocket.removeEventListener("message", onMessage);
 		};
-	}, []);
+	}, [roomId]);
 	return (
 		<>
 			<div>{message}</div>
@@ -25,6 +25,7 @@ export default function Page() {
 				onClick={() => {
 					socketRef.current?.send("Hello from client");
 				}}
+				type="button"
 			>
 				send
 			</button>

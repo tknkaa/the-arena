@@ -16,7 +16,13 @@ export default function Page() {
 	};
 	return (
 		<>
-			{isWaiting ? <>waiting...</> : <button onClick={getRoomId}>Play</button>}
+			{isWaiting ? (
+				<>waiting...</>
+			) : (
+				<button type="button" onClick={getRoomId}>
+					Play
+				</button>
+			)}
 		</>
 	);
 }
