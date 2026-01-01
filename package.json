@@ -1,0 +1,20 @@
+{
+  "name": "the-arena",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "web": "pnpm -F 'web'",
+    "api": "pnpm -F 'api'",
+    "preinstall": "npx only-allow pnpm"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "workspaces": [
+    "apps/*"
+  ]
+}
