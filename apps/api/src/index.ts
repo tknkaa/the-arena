@@ -24,6 +24,10 @@ class BattleEngine {
 		this.state.startTime = Date.now();
 	}
 
+	restore(savedState: BattleState) {
+		this.state = savedState;
+	}
+
 	tick() {
 		if (this.state.status === "playing" && this.state.startTime) {
 			this.state.elapsedTime = Date.now() - this.state.startTime;
@@ -50,6 +54,13 @@ export class BattleActor extends DurableObject<Bindings> {
 	constructor(ctx: DurableObjectState, env: Bindings) {
 		super(ctx, env);
 		this.engine = new BattleEngine();
+
+		this.ctx.blockConcurrencyWhile(async () => {
+			const saved = await this.ctx.storage.get<BattleState>("battle_state");
+			if (saved) {
+				this.engine.restore(saved);
+			}
+		});
 	}
 	async fetch(request: Request) {
 		const webSocketPair = new WebSocketPair();
@@ -75,6 +86,13 @@ export class BattleActor extends DurableObject<Bindings> {
 			const userId = data.userId;
 			const numOfUsers = this.engine.addUser(userId);
 
+			// Save state after adding any user
+			try {
+				await this.ctx.storage.put("battle_state", this.engine.getState());
+			} catch (error) {
+				console.error("Failed to persist state after adding user:", error);
+			}
+
 			const allSessions = this.ctx.getWebSockets();
 			if (numOfUsers === 2) {
 				this.engine.start();
@@ -85,6 +103,11 @@ export class BattleActor extends DurableObject<Bindings> {
 					socket.send(startMessage);
 				});
 				this.broadcastState();
+				try {
+					await this.ctx.storage.put("battle_state", this.engine.getState());
+				} catch (error) {
+					console.error("Failed to persist state after game start:", error);
+				}
 			} else {
 				ws.send(JSON.stringify({ type: "WAITING_FOR_OPPONENT" }));
 			}
@@ -96,13 +119,25 @@ export class BattleActor extends DurableObject<Bindings> {
 		if (!scheduledTime) {
 			scheduledTime = Date.now();
 		}
-		const nextTickTime = scheduledTime + 1000;
+
 		const state = this.engine.tick();
 		this.broadcastState();
 
 		if (state.status === "playing") {
-			await this.ctx.storage.put("nextTickTime", nextTickTime);
-			this.ctx.storage.setAlarm(nextTickTime);
+			// Calculate next tick time to prevent drift
+			const nextTickTime = scheduledTime + 1000;
+			const now = Date.now();
+
+			// If we're behind, catch up to the next interval
+			const adjustedNextTick = nextTickTime < now ? now + 1000 : nextTickTime;
+
+			try {
+				await this.ctx.storage.put("battle_state", state);
+				await this.ctx.storage.put("nextTickTime", adjustedNextTick);
+				this.ctx.storage.setAlarm(adjustedNextTick);
+			} catch (error) {
+				console.error("Failed to persist state during alarm:", error);
+			}
 		}
 	}
 
@@ -116,7 +151,26 @@ export class BattleActor extends DurableObject<Bindings> {
 			ws.send(payload);
 		});
 	}
-	//TODO: add webSocketClose and webSocketError
+
+	async webSocketClose(ws: WebSocket, code: number, reason: string) {
+		console.log(`WebSocket closed: code=${code}, reason=${reason}`);
+		const state = this.engine.getState();
+
+		// If the game is playing and a player disconnects, end the game
+		if (state.status === "playing") {
+			state.status = "ended";
+			try {
+				await this.ctx.storage.put("battle_state", state);
+			} catch (error) {
+				console.error("Failed to persist state after disconnect:", error);
+			}
+			this.broadcastState();
+		}
+	}
+
+	async webSocketError(ws: WebSocket, error: unknown) {
+		console.error("WebSocket error:", error);
+	}
 }
 
 type Bindings = {
