@@ -52,7 +52,15 @@ export class BattleActor extends DurableObject<Env> {
 		});
 	}
 	async webSocketMessage(ws: WebSocket, message: string) {
-		const data = JSON.parse(message);
+		let data: any;
+
+		try {
+			data = JSON.parse(message);
+		} catch (error) {
+			console.error("Failed to parse WebSocket message as JSON", error);
+			ws.close(1003, "Invalid JSON");
+			return;
+		}
 
 		if (data.type === "READY") {
 			this.engine.start();
@@ -66,7 +74,7 @@ export class BattleActor extends DurableObject<Env> {
 		this.broadcastState();
 
 		if (state.status === "playing") {
-			this.ctx.storage.setAlarm(Date.now() + 100);
+			this.ctx.storage.setAlarm(Date.now() + 10000);
 		}
 	}
 

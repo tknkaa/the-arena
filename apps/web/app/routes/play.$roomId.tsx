@@ -3,7 +3,7 @@ import { useParams } from "react-router";
 
 export default function Page() {
 	const [startTime, setStartTime] = useState(0);
-	const [elapsedTime, setElapsed] = useState(0);
+	const [elapsedTime, setElapsedTime] = useState(0);
 	const { roomId } = useParams();
 	const socketRef = useRef<WebSocket | null>(null);
 	useEffect(() => {
@@ -11,11 +11,17 @@ export default function Page() {
 		socketRef.current = websocket;
 
 		const onMessage = (event: MessageEvent) => {
-			const data = JSON.parse(event.data);
+			let data: any;
+			try {
+				data = JSON.parse(event.data);
+			} catch (error) {
+				console.error("Failed to parse WebSocket message", error, event.data);
+				return;
+			}
 			if (data.type === "SYNC_STATE") {
-				const startTime = data.payload.startTime;
-				if (typeof startTime === "number") {
-					setStartTime(startTime);
+				const receivedStartTime = data.payload.startTime;
+				if (typeof receivedStartTime === "number") {
+					setStartTime(receivedStartTime);
 				}
 			}
 		};
@@ -28,13 +34,13 @@ export default function Page() {
 	useEffect(() => {
 		const timerId = setInterval(() => {
 			const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-			setElapsed(elapsedTime);
-		}, 16);
+			setElapsedTime(elapsedTime);
+		}, 1000);
 
 		return () => {
 			clearInterval(timerId);
 		};
-	});
+	}, [startTime]);
 	return (
 		<>
 			<div>Elapsed: {elapsedTime}</div>
