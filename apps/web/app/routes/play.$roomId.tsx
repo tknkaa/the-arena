@@ -3,6 +3,8 @@ import { useParams } from "react-router";
 
 export default function Page() {
 	const [elapsedTime, setElapsedTime] = useState(0);
+	const [gameStarted, setGameStarted] = useState(false);
+	const elapsedTimeRef = useRef(0);
 	const { roomId } = useParams();
 	const socketRef = useRef<WebSocket | null>(null);
 
@@ -19,11 +21,21 @@ export default function Page() {
 				console.error("Failed to parse WebSocket message", error, event.data);
 				return;
 			}
-			if (data.type === "SYNC_STATE") {
+			if (data.type === "GAME_STARTED") {
+				setGameStarted(true);
+			} else if (data.type === "SYNC_STATE") {
+				if (data.payload.status === "playing") {
+					setGameStarted(true);
+				}
 				const receivedElapsedTime = data.payload.elapsedTime;
 				if (typeof receivedElapsedTime === "number") {
-					// Sync with authoritative server value
-					setElapsedTime(Math.floor(receivedElapsedTime / 1000));
+					const receivedElapsedSeconds = Math.floor(receivedElapsedTime / 1000);
+					if (Math.abs(receivedElapsedSeconds - elapsedTimeRef.current) > 1) {
+						// Sync with authoritative server value
+						const syncedValue = Math.floor(receivedElapsedTime / 1000);
+						setElapsedTime(syncedValue);
+						elapsedTimeRef.current = syncedValue;
+					}
 				}
 			}
 		};
@@ -43,14 +55,20 @@ export default function Page() {
 
 	// Client-side ticker
 	useEffect(() => {
+		if (!gameStarted) return;
+
 		const timerId = setInterval(() => {
-			setElapsedTime((prev) => prev + 1);
+			setElapsedTime((prev) => {
+				const newValue = prev + 1;
+				elapsedTimeRef.current = newValue;
+				return newValue;
+			});
 		}, 1000);
 
 		return () => {
 			clearInterval(timerId);
 		};
-	}, []);
+	}, [gameStarted]);
 
 	return (
 		<>

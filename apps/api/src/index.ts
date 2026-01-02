@@ -62,9 +62,20 @@ export class BattleActor extends DurableObject<Env> {
 		}
 
 		if (data.type === "READY") {
-			this.engine.start();
-			this.ctx.storage.setAlarm(Date.now() + 1000);
-			this.broadcastState();
+			const allSessions = this.ctx.getWebSockets();
+
+			if (allSessions.length === 2) {
+				this.engine.start();
+				this.ctx.storage.setAlarm(Date.now() + 1000);
+				// Notify all clients that the game has started
+				const startMessage = JSON.stringify({ type: "GAME_STARTED" });
+				allSessions.forEach((socket) => {
+					socket.send(startMessage);
+				});
+				this.broadcastState();
+			} else {
+				ws.send(JSON.stringify({ type: "WAITING_FOR_OPPONENT" }));
+			}
 		}
 	}
 
