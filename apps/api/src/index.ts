@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
 import { type Env, Hono } from "hono";
-import { upgradeWebSocket } from "hono/cloudflare-workers";
 import { cors } from "hono/cors";
 
 type BattleState = {
@@ -64,7 +63,7 @@ export class BattleActor extends DurableObject<Env> {
 
 		if (data.type === "READY") {
 			this.engine.start();
-			this.ctx.storage.setAlarm(Date.now() + 100);
+			this.ctx.storage.setAlarm(Date.now() + 1000);
 			this.broadcastState();
 		}
 	}
@@ -74,7 +73,7 @@ export class BattleActor extends DurableObject<Env> {
 		this.broadcastState();
 
 		if (state.status === "playing") {
-			this.ctx.storage.setAlarm(Date.now() + 10000);
+			this.ctx.storage.setAlarm(Date.now() + 1000);
 		}
 	}
 

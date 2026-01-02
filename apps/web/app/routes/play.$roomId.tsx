@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 
 export default function Page() {
-	const [startTime, setStartTime] = useState(0);
 	const [elapsedTime, setElapsedTime] = useState(0);
 	const { roomId } = useParams();
 	const socketRef = useRef<WebSocket | null>(null);
+
 	useEffect(() => {
 		const websocket = new WebSocket(`ws://localhost:8787/api/play/${roomId}`);
 		socketRef.current = websocket;
 
 		const onMessage = (event: MessageEvent) => {
+			console.log("Received message", event.data);
 			let data: any;
 			try {
 				data = JSON.parse(event.data);
@@ -19,28 +20,38 @@ export default function Page() {
 				return;
 			}
 			if (data.type === "SYNC_STATE") {
-				const receivedStartTime = data.payload.startTime;
-				if (typeof receivedStartTime === "number") {
-					setStartTime(receivedStartTime);
+				const receivedElapsedTime = data.payload.elapsedTime;
+				if (typeof receivedElapsedTime === "number") {
+					// Sync with authoritative server value
+					setElapsedTime(Math.floor(receivedElapsedTime / 1000));
 				}
 			}
 		};
 		websocket.addEventListener("message", onMessage);
+		websocket.addEventListener("open", () => {
+			const readyMessage = {
+				type: "READY",
+			};
+			websocket.send(JSON.stringify(readyMessage));
+			console.log("Connected");
+		});
 		return () => {
 			websocket.close();
 			websocket.removeEventListener("message", onMessage);
 		};
 	}, [roomId]);
+
+	// Client-side ticker
 	useEffect(() => {
 		const timerId = setInterval(() => {
-			const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-			setElapsedTime(elapsedTime);
+			setElapsedTime((prev) => prev + 1);
 		}, 1000);
 
 		return () => {
 			clearInterval(timerId);
 		};
-	}, [startTime]);
+	}, []);
+
 	return (
 		<>
 			<div>Elapsed: {elapsedTime}</div>
