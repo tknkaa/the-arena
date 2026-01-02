@@ -1,11 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
-import { type Env, Hono } from "hono";
+import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 type BattleState = {
 	status: "waiting" | "playing" | "ended";
 	startTime?: number;
 	elapsedTime: number;
+	userIds?: string[];
 };
 
 class BattleEngine {
@@ -33,11 +34,20 @@ class BattleEngine {
 	getState() {
 		return this.state;
 	}
+	addUser(userId: string) {
+		if (!this.state.userIds) {
+			this.state.userIds = [];
+		}
+		if (!this.state.userIds?.includes(userId)) {
+			this.state.userIds.push(userId);
+		}
+		return this.state.userIds.length;
+	}
 }
 
-export class BattleActor extends DurableObject<Env> {
+export class BattleActor extends DurableObject<Bindings> {
 	private engine: BattleEngine;
-	constructor(ctx: DurableObjectState, env: Env) {
+	constructor(ctx: DurableObjectState, env: Bindings) {
 		super(ctx, env);
 		this.engine = new BattleEngine();
 	}
@@ -62,9 +72,11 @@ export class BattleActor extends DurableObject<Env> {
 		}
 
 		if (data.type === "READY") {
-			const allSessions = this.ctx.getWebSockets();
+			const userId = data.userId;
+			const numOfUsers = this.engine.addUser(userId);
 
-			if (allSessions.length === 2) {
+			const allSessions = this.ctx.getWebSockets();
+			if (numOfUsers === 2) {
 				this.engine.start();
 				this.ctx.storage.setAlarm(Date.now() + 1000);
 				// Notify all clients that the game has started
@@ -80,11 +92,17 @@ export class BattleActor extends DurableObject<Env> {
 	}
 
 	async alarm() {
+		let scheduledTime = await this.ctx.storage.get<number>("nextTickTime");
+		if (!scheduledTime) {
+			scheduledTime = Date.now();
+		}
+		const nextTickTime = scheduledTime + 1000;
 		const state = this.engine.tick();
 		this.broadcastState();
 
 		if (state.status === "playing") {
-			this.ctx.storage.setAlarm(Date.now() + 1000);
+			await this.ctx.storage.put("nextTickTime", nextTickTime);
+			this.ctx.storage.setAlarm(nextTickTime);
 		}
 	}
 
@@ -98,6 +116,7 @@ export class BattleActor extends DurableObject<Env> {
 			ws.send(payload);
 		});
 	}
+	//TODO: add webSocketClose and webSocketError
 }
 
 type Bindings = {

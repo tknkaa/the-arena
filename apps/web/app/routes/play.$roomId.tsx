@@ -7,6 +7,7 @@ export default function Page() {
 	const elapsedTimeRef = useRef(0);
 	const { roomId } = useParams();
 	const socketRef = useRef<WebSocket | null>(null);
+	const isFirstSync = useRef(true);
 
 	useEffect(() => {
 		const websocket = new WebSocket(`ws://localhost:8787/api/play/${roomId}`);
@@ -30,22 +31,35 @@ export default function Page() {
 				const receivedElapsedTime = data.payload.elapsedTime;
 				if (typeof receivedElapsedTime === "number") {
 					const receivedElapsedSeconds = Math.floor(receivedElapsedTime / 1000);
-					if (Math.abs(receivedElapsedSeconds - elapsedTimeRef.current) > 1) {
+					if (
+						isFirstSync.current ||
+						Math.abs(receivedElapsedSeconds - elapsedTimeRef.current) >= 1
+					) {
 						// Sync with authoritative server value
 						const syncedValue = Math.floor(receivedElapsedTime / 1000);
 						setElapsedTime(syncedValue);
 						elapsedTimeRef.current = syncedValue;
+						isFirstSync.current = false;
 					}
 				}
 			}
 		};
 		websocket.addEventListener("message", onMessage);
 		websocket.addEventListener("open", () => {
+			let userId = localStorage.getItem("debug-user-id");
+			if (!userId) {
+				userId = "user-" + Math.random().toString(36).substring(7);
+				localStorage.setItem("debug-user-id", userId);
+			}
 			const readyMessage = {
 				type: "READY",
+				userId: userId,
 			};
 			websocket.send(JSON.stringify(readyMessage));
 			console.log("Connected");
+		});
+		websocket.addEventListener("error", (_event) => {
+			//TODO: error handling
 		});
 		return () => {
 			websocket.close();
