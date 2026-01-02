@@ -1,8 +1,92 @@
-import { Hono } from "hono";
+import { DurableObject } from "cloudflare:workers";
+import { type Env, Hono } from "hono";
 import { upgradeWebSocket } from "hono/cloudflare-workers";
 import { cors } from "hono/cors";
 
-const app = new Hono();
+type BattleState = {
+	status: "waiting" | "playing" | "ended";
+	startTime?: number;
+	elapsedTime: number;
+};
+
+class BattleEngine {
+	private state: BattleState;
+
+	constructor() {
+		this.state = {
+			status: "waiting",
+			elapsedTime: 0,
+		};
+	}
+
+	start() {
+		this.state.status = "playing";
+		this.state.startTime = Date.now();
+	}
+
+	tick() {
+		if (this.state.status === "playing" && this.state.startTime) {
+			this.state.elapsedTime = Date.now() - this.state.startTime;
+		}
+		return this.state;
+	}
+
+	getState() {
+		return this.state;
+	}
+}
+
+export class BattleActor extends DurableObject<Env> {
+	private engine: BattleEngine;
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
+		this.engine = new BattleEngine();
+	}
+	async fetch(request: Request) {
+		const webSocketPair = new WebSocketPair();
+		const [client, server] = Object.values(webSocketPair);
+		this.ctx.acceptWebSocket(server);
+		return new Response(null, {
+			status: 101,
+			webSocket: client,
+		});
+	}
+	async webSocketMessage(ws: WebSocket, message: string) {
+		const data = JSON.parse(message);
+
+		if (data.type === "READY") {
+			this.engine.start();
+			this.ctx.storage.setAlarm(Date.now() + 100);
+			this.broadcastState();
+		}
+	}
+
+	async alarm() {
+		const state = this.engine.tick();
+		this.broadcastState();
+
+		if (state.status === "playing") {
+			this.ctx.storage.setAlarm(Date.now() + 100);
+		}
+	}
+
+	private broadcastState() {
+		const payload = JSON.stringify({
+			type: "SYNC_STATE",
+			payload: this.engine.getState(),
+		});
+
+		this.ctx.getWebSockets().forEach((ws) => {
+			ws.send(payload);
+		});
+	}
+}
+
+type Bindings = {
+	DO: DurableObjectNamespace<BattleActor>;
+};
+
+const app = new Hono<{ Bindings: Bindings }>();
 
 app.use(
 	"/api/*",
@@ -21,17 +105,12 @@ app.get("/api/play", (c) => {
 	return c.text(roomId);
 });
 
-app.get(
-	"/api/play/:room-id",
-	upgradeWebSocket((c) => {
-		const roomId = c.req.param("room-id");
-		return {
-			onMessage(event, ws) {
-				ws.send(`Hello from room ${roomId}, Received: ${event.data}`);
-			},
-			onClose: () => {},
-		};
-	}),
-);
+app.get("/api/play/:room-id", async (c) => {
+	const roomId = c.req.param("room-id");
+	const env = c.env;
+	const id = env.DO.idFromName(roomId);
+	const stub = env.DO.get(id);
+	return stub.fetch(c.req.raw);
+});
 
 export default app;

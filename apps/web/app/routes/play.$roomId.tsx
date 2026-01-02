@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 
 export default function Page() {
-	const [message, setMessage] = useState("");
+	const [startTime, setStartTime] = useState(0);
+	const [elapsedTime, setElapsed] = useState(0);
 	const { roomId } = useParams();
 	const socketRef = useRef<WebSocket | null>(null);
 	useEffect(() => {
@@ -10,7 +11,13 @@ export default function Page() {
 		socketRef.current = websocket;
 
 		const onMessage = (event: MessageEvent) => {
-			setMessage(event.data);
+			const data = JSON.parse(event.data);
+			if (data.type === "SYNC_STATE") {
+				const startTime = data.payload.startTime;
+				if (typeof startTime === "number") {
+					setStartTime(startTime);
+				}
+			}
 		};
 		websocket.addEventListener("message", onMessage);
 		return () => {
@@ -18,17 +25,19 @@ export default function Page() {
 			websocket.removeEventListener("message", onMessage);
 		};
 	}, [roomId]);
+	useEffect(() => {
+		const timerId = setInterval(() => {
+			const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+			setElapsed(elapsedTime);
+		}, 16);
+
+		return () => {
+			clearInterval(timerId);
+		};
+	});
 	return (
 		<>
-			<div>{message}</div>
-			<button
-				onClick={() => {
-					socketRef.current?.send("Hello from client");
-				}}
-				type="button"
-			>
-				send
-			</button>
+			<div>Elapsed: {elapsedTime}</div>
 		</>
 	);
 }
