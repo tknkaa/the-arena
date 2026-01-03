@@ -1,13 +1,31 @@
 import { DurableObject } from "cloudflare:workers";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { use } from "hono/jsx";
 
 type BattleState = {
 	status: "waiting" | "playing" | "ended";
 	startTime?: number;
 	elapsedTime: number;
-	userIds?: string[];
+	userIds: string[];
 };
+
+export type ClientMessage = {
+	type: "READY";
+	userId: string;
+};
+
+export type ServerMessage =
+	| {
+			type: "SYNC_STATE";
+			payload: BattleState;
+	  }
+	| {
+			type: "WAITING_FOR_OPPONENT";
+	  }
+	| {
+			type: "GAME_STARTED";
+	  };
 
 class BattleEngine {
 	private state: BattleState;
@@ -16,6 +34,7 @@ class BattleEngine {
 		this.state = {
 			status: "waiting",
 			elapsedTime: 0,
+			userIds: [],
 		};
 	}
 
@@ -39,21 +58,26 @@ class BattleEngine {
 		return this.state;
 	}
 	addUser(userId: string) {
-		if (!this.state.userIds) {
-			this.state.userIds = [];
-		}
-		if (!this.state.userIds?.includes(userId)) {
+		if (!this.state.userIds.includes(userId)) {
 			this.state.userIds.push(userId);
 		}
 		return this.state.userIds.length;
+	}
+	deleteUser(userId: string) {
+		if (this.state.userIds.includes(userId)) {
+			const deleted = this.state.userIds.filter((id) => id !== userId);
+			this.state.userIds = deleted;
+		}
 	}
 }
 
 export class BattleActor extends DurableObject<Bindings> {
 	private engine: BattleEngine;
+	private sessions: Map<WebSocket, string>;
 	constructor(ctx: DurableObjectState, env: Bindings) {
 		super(ctx, env);
 		this.engine = new BattleEngine();
+		this.sessions = new Map<WebSocket, string>();
 
 		this.ctx.blockConcurrencyWhile(async () => {
 			const saved = await this.ctx.storage.get<BattleState>("battle_state");
@@ -72,7 +96,7 @@ export class BattleActor extends DurableObject<Bindings> {
 		});
 	}
 	async webSocketMessage(ws: WebSocket, message: string) {
-		let data: any;
+		let data: ClientMessage;
 
 		try {
 			data = JSON.parse(message);
@@ -84,6 +108,7 @@ export class BattleActor extends DurableObject<Bindings> {
 
 		if (data.type === "READY") {
 			const userId = data.userId;
+			this.sessions.set(ws, userId);
 			const numOfUsers = this.engine.addUser(userId);
 
 			// Save state after adding any user
@@ -98,7 +123,10 @@ export class BattleActor extends DurableObject<Bindings> {
 				this.engine.start();
 				this.ctx.storage.setAlarm(Date.now() + 1000);
 				// Notify all clients that the game has started
-				const startMessage = JSON.stringify({ type: "GAME_STARTED" });
+				const message: ServerMessage = {
+					type: "GAME_STARTED",
+				};
+				const startMessage = JSON.stringify(message);
 				allSessions.forEach((socket) => {
 					socket.send(startMessage);
 				});
@@ -109,7 +137,10 @@ export class BattleActor extends DurableObject<Bindings> {
 					console.error("Failed to persist state after game start:", error);
 				}
 			} else {
-				ws.send(JSON.stringify({ type: "WAITING_FOR_OPPONENT" }));
+				const message: ServerMessage = {
+					type: "WAITING_FOR_OPPONENT",
+				};
+				ws.send(JSON.stringify(message));
 			}
 		}
 	}
@@ -142,19 +173,27 @@ export class BattleActor extends DurableObject<Bindings> {
 	}
 
 	private broadcastState() {
-		const payload = JSON.stringify({
+		const message: ServerMessage = {
 			type: "SYNC_STATE",
 			payload: this.engine.getState(),
-		});
+		};
+
+		const syncMessage = JSON.stringify(message);
 
 		this.ctx.getWebSockets().forEach((ws) => {
-			ws.send(payload);
+			ws.send(syncMessage);
 		});
 	}
 
 	async webSocketClose(ws: WebSocket, code: number, reason: string) {
 		console.log(`WebSocket closed: code=${code}, reason=${reason}`);
 		const state = this.engine.getState();
+		const userId = this.sessions.get(ws);
+		if (userId) {
+			this.engine.deleteUser(userId);
+		}
+
+		this.sessions.delete(ws);
 
 		// If the game is playing and a player disconnects, end the game
 		if (state.status === "playing") {

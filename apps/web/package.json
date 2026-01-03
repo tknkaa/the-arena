@@ -1,5 +1,5 @@
 {
-	"name": "web",
+	"name": "@apps/web",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -16,7 +16,8 @@
 		"isbot": "^5.1.31",
 		"react": "^19.1.1",
 		"react-dom": "^19.1.1",
-		"react-router": "^7.10.0"
+		"react-router": "^7.10.0",
+		"@apps/api": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.13.5",
