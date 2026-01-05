@@ -50,6 +50,9 @@ class BattleEngine {
 	tick() {
 		if (this.state.status === "playing" && this.state.startTime) {
 			this.state.elapsedTime = Date.now() - this.state.startTime;
+			if (this.state.elapsedTime >= 10000) {
+				this.state.status = "ended";
+			}
 		}
 		return this.state;
 	}
